@@ -324,38 +324,60 @@ export async function callback(
         options.callbacks.signIn
       )
 
-      const defaultToken = {
-        name: user.name,
-        email: user.email,
-        picture: user.image,
-        sub: user.id,
-      }
-
-      const token = await callbacks.jwt({
-        token: defaultToken,
+      // Sign user in
+      const {
+        user: loggedInUser,
+        session,
+        isNewUser,
+      } = await handleLoginOrRegister(
+        sessionStore.value,
         user,
         account,
-        isNewUser: false,
-        trigger: "signIn",
-      })
+        options
+      )
 
-      // Clear cookies if token is null
-      if (token === null) {
-        cookies.push(...sessionStore.clean())
-      } else {
-        const salt = options.cookies.sessionToken.name
-        // Encode token
-        const newToken = await jwt.encode({ ...jwt, token, salt })
-
-        // Set cookie expiry date
-        const cookieExpires = new Date()
-        cookieExpires.setTime(cookieExpires.getTime() + sessionMaxAge * 1000)
-
-        const sessionCookies = sessionStore.chunk(newToken, {
-          expires: cookieExpires,
+      if (useJwtSession) {
+        const defaultToken = {
+          name: loggedInUser.name,
+          email: loggedInUser.email,
+          picture: loggedInUser.image,
+          sub: loggedInUser.id?.toString(),
+        }
+        const token = await callbacks.jwt({
+          token: defaultToken,
+          user: loggedInUser,
+          account,
+          isNewUser,
+          trigger: isNewUser ? "signUp" : "signIn",
         })
 
-        cookies.push(...sessionCookies)
+        // Clear cookies if token is null
+        if (token === null) {
+          cookies.push(...sessionStore.clean())
+        } else {
+          const salt = options.cookies.sessionToken.name
+          // Encode token
+          const newToken = await jwt.encode({ ...jwt, token, salt })
+
+          // Set cookie expiry date
+          const cookieExpires = new Date()
+          cookieExpires.setTime(cookieExpires.getTime() + sessionMaxAge * 1000)
+
+          const sessionCookies = sessionStore.chunk(newToken, {
+            expires: cookieExpires,
+          })
+
+          cookies.push(...sessionCookies)
+        }
+      } else {
+        cookies.push({
+          name: options.cookies.sessionToken.name,
+          value: (session as AdapterSession).sessionToken,
+          options: {
+            ...options.cookies.sessionToken.options,
+            expires: (session as AdapterSession).expires,
+          },
+        })
       }
 
       await events.signIn?.({ user, account })
